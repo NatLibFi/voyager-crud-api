@@ -1,0 +1,278 @@
+#!/bin/ksh
+#(c)#====================================================================
+#(c)#
+#(c)#      Copyright 2007-2011 Ex Libris (USA) Inc.
+#(c)#                      All Rights Reserved
+#(c)#
+#(c)#====================================================================
+
+#########################################################################
+
+ENVFILE=voyager.env
+
+#########################################################################
+
+setReportsDir() {
+
+    #If the parameters starts with a '/' then it's a absolute path
+    if [[ "${1#/}" = "$1" ]]
+    then
+
+	export REPORTSDIR=$VOYAGER/$DATABASE/$1
+
+    else
+
+	export REPORTSDIR=$1   
+
+    fi
+
+}
+
+############################################################################
+## checks parameters for -reportsdir & - envfile parameter
+
+echo "Test"
+
+if [[ "${#}" -gt 1 ]]
+then
+
+    SHIFT=0
+
+    if [[ "${1}" = "-reportsdir" ]]
+    then
+
+	REPORTSDIR_INDEX=$2
+	SHIFT=2
+
+    elif [[ "${1}" = "-envfile" ]]
+    then
+
+	ENVFILE=$2
+	SHIFT=2
+
+    fi
+
+    if [[ "${3}" = "-reportsdir" ]]
+    then
+
+	REPORTSDIR_INDEX=$4
+	SHIFT=4
+
+    elif [[ "${3}" = "-envfile" ]]
+    then
+
+	ENVFILE=$4
+	SHIFT=4
+
+    fi
+
+fi
+
+#######################################################################
+
+if [[ "${0%/*}" = "$0" ]]
+then	cfgdir=".";
+else	cfgdir="${0%/*}";
+fi
+
+if [[ -f $ENVFILE ]]
+then . $ENVFILE
+elif [[ -f $cfgdir/$ENVFILE ]]
+then . $cfgdir/$ENVFILE
+elif [[ -f $cfgdir/../ini/$ENVFILE ]]
+then . $cfgdir/../ini/$ENVFILE
+else
+	echo "Missing environment file \"$ENVFILE\". Aborting"
+	exit -1;
+fi
+
+if [[ ! -z $REPORTSDIR_INDEX ]]
+then
+
+    setReportsDir $REPORTSDIR_INDEX
+
+fi
+
+## shifts extraparameters out
+
+if [[ $SHIFT -gt 0 ]]
+then
+
+    shift $SHIFT
+
+fi
+
+#########################################################################
+
+export APPINITIALS=/usemarcon.bip
+export USEMARCONERRCOD=$VOYAGER/$DATABASE/ini/usemarcon.errmsgs
+
+if [ -f $DUMPDIR/core ]
+  then
+    /bin/mv $DUMPDIR/core $DUMPDIR/core.$$
+fi
+##cd $DUMPDIR
+
+# Transferred from updated Pbulkimport
+
+myPid=$$
+dateStr=`date '+%Y%m%d.%H%M'`
+count=`ps -fu voyager | grep ${DATABASE} | grep bulkimport | grep -v $myPid | wc -l`
+params=
+multiOk=false
+
+logId=
+email=
+while getopts c:f:l:i:o:d:u:b:y:p:e:kmrRxTX:a:K:hIML:N:Cqs o
+do case "$o" in
+    M) multiOk=true ;;
+    L) logId=$OPTARG;;
+    N) email=$OPTARG;;
+    *) params=" $params -$o $OPTARG " ;;
+    esac
+done
+
+
+if [[ ${count} -gt 0 ]]
+then
+    if [[ "X${multiOk}" == "Xfalse" ]]
+    then
+        echo "A bulkimport process is already running for this database."
+        echo "Use the -M switch to allow multiple processes."
+        exit 1
+    fi
+fi
+
+if [ ! -n "$logId" ]
+then
+    logId=${dateStr}.${myPid}
+fi
+
+
+
+if [[ ${UCATBULKIMPORT:="N"} = "Y" ]]
+then
+	# here it does not run in the background -- "Y"
+	if [[ -z $REPORTSDIR ]]
+	then
+	   export REPORTSDIR=$VOYAGER/$DATABASE/ucat/rpt
+	fi
+
+        echo "bulkimport started. Reports will be in $REPORTSDIR."
+
+        #exec $VOYAGER_BIN/bulkimport -d $ORACLE_SID -u $USERPASS \
+	#-c $VOYAGER/$DATABASE/ini/voyager.ini "$@"
+
+    exec $VOYAGER_BIN/bulkimport -d $ORACLE_SID -u $USERPASS \
+	-c $VOYAGER/$DATABASE/ini/voyager.ini -L ${logId} $params
+        pid=$!
+    
+else
+
+	if [[ -z $REPORTSDIR ]]
+	then
+	   export REPORTSDIR=$VOYAGER/$DATABASE/rpt
+	fi
+
+        echo "bulkimport started. Reports will be in $REPORTSDIR."
+	# here it runs in the background -- "N"
+	#exec $VOYAGER_BIN/bulkimport -d $ORACLE_SID -u $USERPASS \
+	#-c $VOYAGER/$DATABASE/ini/voyager.ini "$@" &
+
+cat > /tmp/Pdobulkimport.${logId} << EOC
+#!/bin/ksh
+  $VOYAGER_BIN/bulkimport -d $ORACLE_SID -u $USERPASS -c $VOYAGER/$DATABASE/ini/voyager.ini -L ${logId} $params
+
+  if [ -n "$email" ]
+  then
+    export LOGFILE=${REPORTSDIR}/log.imp.${logId}
+    if [ ! -f \${LOGFILE} ]
+    then
+       rm /tmp/Pdobulkimport.${logId}
+       exit
+    fi
+    export LOGFILESIZE=\`ls -lt \${LOGFILE}|awk '{print \$5}'\`
+    if [ \$LOGFILESIZE -gt 10000 ]
+    then
+         export UUENCODE=`PATH=\$PATH:/m1/shared/bin whence uuencode`
+         if [ -n "\$UUENCODE" ]
+         then
+             export ZIPLOGFILE=${VOYAGER}/${DATABASE}/tmp/log.imp.${logId}.zip
+             export ZIPLOGFILENAME=log.imp.${logId}.zip
+###             gzip -c \${LOGFILE} >\${ZIPLOGFILE}
+             zip -j \${ZIPLOGFILE} \${LOGFILE}
+
+             export MAILTO="$email"
+             export SUBJECT="bulkimport $DATABASE COMPLETED"
+             export BODY="Please see attached log file."
+             export ATTACH="${VOYAGER}/${DATABASE}/tmp/log.imp.${logId}.zip"
+             export MAILPART=\`uuidgen 2>/dev/null\` ## Generates Unique ID
+             export MAILPART_BODY=\`uuidgen 2>/dev/null\` ## Generates Unique ID
+             if [ "\$MAILPART" = "" ]; then
+                 export MAILPART=\$(PATH=/m1/shared/bin:$PATH ; perl -MMIME::Base64 -e " print encode_base64(sprintf '%.0f', (time()*rand()*100000000000000000000000000000));") ## Generates Unique ID
+             fi
+             if [ "\$MAILPART_BODY" = "" ]; then
+                 export MAILPART_BODY=\$(PATH=/m1/shared/bin:$PATH ; perl -MMIME::Base64 -e " print encode_base64(sprintf '%.0f', (time()*rand()*100000000000000000000000000000));") ## Generates Unique ID
+             fi
+
+             (
+                echo "To: \$MAILTO"
+                echo "Subject: \$SUBJECT"
+                echo "MIME-Version: 1.0"
+                echo "Content-Type: multipart/mixed; boundary=\"\$MAILPART\""
+                echo ""
+                echo "--\$MAILPART"
+                echo "Content-Type: multipart/alternative; boundary=\"\$MAILPART_BODY\""
+                echo ""
+                echo "--\$MAILPART_BODY"
+                echo "Content-Type: text/plain; charset=ISO-8859-1"
+                echo ""
+                echo "You need to enable HTML option for email"
+                echo "Please see attached"
+                echo ""
+                echo "--\$MAILPART_BODY"
+                echo "Content-Type: text/html; charset=ISO-8859-1"
+                echo "Content-Transfer-Encoding: quoted-printable"
+                echo "Content-Disposition: inline"
+                echo ""
+                echo "<html><body>Please see attached</body></html>"
+                echo ""
+                echo "--\$MAILPART_BODY--"
+
+                echo "--\$MAILPART"
+#####                echo 'Content-Type: application/gzip; name="'\$(basename \$ATTACH)'"'
+                echo 'Content-Type: application/zip; name="'\$(basename \$ATTACH)'"'
+                echo "Content-Transfer-Encoding: uuencode"
+                echo 'Content-Disposition: attachment; filename="'\$(basename \$ATTACH)'"'
+                echo ""
+                \$UUENCODE \$ATTACH \$(basename \$ATTACH)
+                echo ""
+                echo "--\$MAILPART--"
+              ) | /usr/sbin/sendmail \$MAILTO
+
+              rm $VOYAGER/${DATABASE}/tmp/log.imp.${logId}.zip
+         else
+              (echo "--- uuencode not installed. Unable to email Logfile: \${LOGFILE} --- ") |mailx -s "bulkimport $DATABASE COMPLETED" ${email}
+         fi
+    else
+         (echo "--- \${LOGFILE} --- "; echo " ";cat \${LOGFILE}) |mailx -s "bulkimport $DATABASE COMPLETED" ${email}
+    fi
+
+  fi
+  rm /tmp/Pdobulkimport.${logId}
+EOC
+
+    if [[ ${RUN_IN_FOREGROUND:="N"} = "Y" ]]
+then
+## Not run in the background
+    ksh /tmp/Pdobulkimport.${logId}
+else
+    ksh /tmp/Pdobulkimport.${logId} &
+fi
+pid=$!
+fi
+echo "Bulkimport Process id: $myPid"
+
+ 
+    
+    

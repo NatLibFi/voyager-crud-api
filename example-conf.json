@@ -1,0 +1,21 @@
+{
+    "apiKeys": [
+        "foobar"
+    ],
+    "instance": "foodb",
+    "importCodes": {
+        "create": "FOO",
+        "update": "BAR"
+    },
+    "operators": {
+        "create": "FOO",
+        "update": "BAR"
+    },
+    "db": {
+        "host": "localhost",
+        "port": 1521,
+        "user": "foo",
+        "password": "BAR",
+        "sid": "FOOBAR"
+    }
+}
