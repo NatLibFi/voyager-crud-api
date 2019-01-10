@@ -35,7 +35,6 @@ def main():
 
   if os.getenv('REQUEST_METHOD') == 'POST':
     validate_content_type()    
-    error(403)    
     process_write(conf)
   elif os.getenv('REQUEST_METHOD') == 'GET':
     validate_accept()
