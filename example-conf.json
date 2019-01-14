@@ -7,10 +7,7 @@
         "create": "FOO",
         "update": "BAR"
     },
-    "operators": {
-        "create": "FOO",
-        "update": "BAR"
-    },
+    "operator": "FOOBAR"
     "db": {
         "host": "localhost",
         "port": 1521,

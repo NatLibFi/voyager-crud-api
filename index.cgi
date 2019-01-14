@@ -20,7 +20,9 @@ import json
 import re
 import subprocess
 import cx_Oracle
-from pymarc import MARCReader
+from pymarc import marcxml
+from pymarc.record import Record
+from datetime import date
 from uuid import uuid4
 from base64 import b64decode
 
@@ -35,7 +37,7 @@ def main():
 
   if os.getenv('REQUEST_METHOD') == 'POST':
     validate_content_type()    
-    process_write(conf)
+    process_write(conf, params)
   elif os.getenv('REQUEST_METHOD') == 'GET':
     validate_accept()
     process_read(conf, params)
@@ -69,7 +71,7 @@ def validate_resource(params):
     error(404)
 
 def validate_content_type():
-  if 'HTTP_CONTENT_TYPE' not in os.environ or os.getenv('HTTP_CONTENT_TYPE') != 'application/xml':
+  if 'CONTENT_TYPE' not in os.environ or os.getenv('CONTENT_TYPE') != 'application/xml':
     error(415)
 
 def validate_accept():
@@ -87,48 +89,41 @@ def process_read(conf, params):
   db = cx_Oracle.connect(user=conf['db']['user'], password=conf['db']['password'], dsn=dsn)
 
   cursor = db.cursor()
+  cursor.execute('SELECT utl_raw.CAST_TO_RAW(RECORD_SEGMENT) as SEG FROM {0}_DATA WHERE {0}_ID = {1} ORDER BY SEQNUM'.format(resource, params['id']))
 
-  cursor.execute('SELECT utl_raw.CAST_TO_RAW(RECORD_SEGMENT) as SEG FROM {0}_DATA WHERE {0}_ID = \'{1}\' ORDER BY SEQNUM'.format(resource, id))
-
-  data = reduce(lambda memo, v: v.SEG, cursor.fetchall(), '')
+  data = reduce(lambda memo, v: memo+v[0], cursor.fetchall(), '')
 
   if len(data) is 0:
     error(404)
 
-  write_log(record)
-
   record = Record(data)
-
-  return marcxml.record_to_xml(record)
+  xml_str = marcxml.record_to_xml(record, namespace=True)
+  
+  print 'Status: 200'
+  print 'Content-Type: application/xml'
+  print
+  print '<?xml version="1.0" encoding="UTF-8"?>{}'.format(xml_str)
 
 def process_write(conf, params):
   record = marcxml.parse_xml_to_array(sys.stdin)[0]
 
-  if 'id' in params:
-    if record.get_fields('001')[0] != id:
-      error(400, 'Record id differs in data and parameter')
-
-    try:
-      output = run_bulkimport(conf['instance'], conf['importCodes']['update'], conf['operators']['update'], record.as_marc21())
-      
-      parse_bulkimport_log(output)
+  try:
+    if 'update' in params and params['update'] == '1':
+      output = run_bulkimport(conf['instance'], conf['importCodes']['update'], conf['operator'], record.as_marc21())
+      parse_bulkimport_log(conf, output)
       
       print 'Status: 204'
       print
-    except Error as e:
-      write_log('Failed running bulkimport: {}'.format(e))
-      error(500)      
-  else:
-    try:
-      output = run_bulkimport(conf['instance'], conf['importCodes']['create'], conf['operators']['create'], record.as_marc21())
-      id = parse_bulkimport_log(output)
-      
+    else:
+      output = run_bulkimport(conf['instance'], conf['importCodes']['create'], conf['operator'], record.as_marc21())
+      id = parse_bulkimport_log(conf, output)
+    
       print 'Status: 201'
       print 'Record-ID: {}'.format(id)
       print
-    except Error as e:
-      write_log('Failed running bulkimport: {}'.format(e))
-      error(500)
+  except Exception as e:
+    write_log('Failed running bulkimport: {}'.format(e))
+    error(500)
 
 def write_log(msg):
   sys.stderr.write(msg+'\n')
@@ -146,16 +141,16 @@ def error(code, msg=None):
   sys.exit()
 
 def run_bulkimport(db, import_code, operator, payload):
-  input_file = '/tmp/{0}'.format(str(uuid4()).replace('-', ''))
+  input_file = '/tmp/{}'.format(str(uuid4()).replace('-', ''))
   args = [
-    '/m1/voyager/{0}/sbin/Pbulkimport3'.format(db),
+    '/m1/voyager/{}/sbin/Pbulkimport3'.format(db),
     '-reportsdir',
-    '/m1/voyager/{0}/rpt'.format(db),
+    '/m1/voyager/{}/rpt'.format(db),
     '-envfile',
-    '/m1/voyager/{0}/ini/voyager.env'.format(db),
+    '/m1/voyager/{}/ini/voyager.env'.format(db),
     '-f', input_file,
-    '-i{0}'.format(import_code),
-    '-o{0}'.format(operator),
+    '-i{}'.format(import_code),
+    '-o{}'.format(operator),
     '-K', 'ADDKEY',
     '-M']
 
@@ -170,13 +165,32 @@ def run_bulkimport(db, import_code, operator, payload):
   os.unlink(input_file)
 
   if p.returncode is not 0:
-    raise Error('Running bulkimport failed: {}'.format(stderr))
+    raise Exception(stderr)
 
   return stdout
 
-def parse_bulkimport_log(data):
-  write_log(data)
-  return
+def parse_bulkimport_log(conf, data):
+  dir = '/m1/voyager/{}/rpt'.format(conf['instance'])
+  pid = re.search('Bulkimport Process id: ([0-9]+)', data, re.M).group(1)
+  date_str = date.today().strftime('%Y%m%d')
+  pattern = re.compile('log.imp.{}.[0-9]{{4}}.{}$'.format(date_str, pid))
+
+  for filename in os.listdir(dir):   
+    if pattern.match(filename):
+      f = open(os.path.join(dir, filename))
+      log = f.read()      
+      f.close()
+
+      if re.search('Added:         1', log):
+        m = re.search('Adding Bib record ([0-9]+)', log)
+	if m:
+          return m.group(1)
+        else:
+          raise Exception(log)
+      elif re.search('Replaced:      1', log):
+        return
+      else:
+        raise Exception(log)
 
 if __name__ == '__main__':
   main()

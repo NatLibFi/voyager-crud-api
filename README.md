@@ -4,6 +4,13 @@ HTTP API for reading, creating and updating records in Voyager ILS. Use Oracle f
 ## Installation
 - The file index.cgi can be made available in `cgi-bin` directory with the configuration file, which must be named `voyager-crud-api-conf.json` (See `example-conf.json`)
 - Copy bin/Pbulkimport3 to `/m1/voyager/<VOYAGER_INSTANCE>/sbin`
+### Using a different Python interpreter
+Create a wrapper script:
+```sh
+#!/bin/bash
+export LD_LIBRARY_PATH=<Path to Oracle libs>
+/bin/python2.7 index.cgi
+```
 ## Usage
 ### Read record
 ```sh
