@@ -67,7 +67,7 @@ def validate_api_key(conf, params):
 def validate_resource(params):
   if 'resource' not in params:
     error(400, 'Parameter \'resource\' is missing')
-  elif params['resource'] != 'bib' and params['resource'] != 'aut':
+  elif params['resource'] != 'bib' and params['resource'] != 'auth':
     error(404)
 
 def validate_content_type():
