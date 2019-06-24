@@ -106,16 +106,17 @@ def process_read(conf, params):
 
 def process_write(conf, params):
   record = marcxml.parse_xml_to_array(sys.stdin)[0]
+  import_codes = conf['importCodes'][params['resource']]
 
   try:
     if 'update' in params and params['update'] == '1':
-      output = run_bulkimport(conf['instance'], conf['importCodes']['update'], conf['operator'], record.as_marc21())
+      output = run_bulkimport(conf['instance'], import_codes['update'], conf['operator'], record.as_marc21())
       parse_bulkimport_log(conf, output)
       
       print 'Status: 204'
       print
     else:
-      output = run_bulkimport(conf['instance'], conf['importCodes']['create'], conf['operator'], record.as_marc21())
+      output = run_bulkimport(conf['instance'], import_codes['create'], conf['operator'], record.as_marc21())
       id = parse_bulkimport_log(conf, output)
     
       print 'Status: 201'
@@ -194,3 +195,4 @@ def parse_bulkimport_log(conf, data):
 
 if __name__ == '__main__':
   main()
+

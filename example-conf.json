@@ -4,10 +4,16 @@
     ],
     "instance": "foodb",
     "importCodes": {
-        "create": "FOO",
-        "update": "BAR"
+        "bib": {
+            "create": "FOO",
+            "update": "BAR"
+        },
+        "auth": {
+            "create": "FOO",
+            "update": "BAR"
+        },
     },
-    "operator": "FOOBAR"
+    "operator": "FOOBAR",
     "db": {
         "host": "localhost",
         "port": 1521,
