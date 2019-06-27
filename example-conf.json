@@ -2,6 +2,7 @@
     "apiKeys": [
         "foobar"
     ],
+    "bulkimportPath": "/m1/voyager/foodb/local/bin/Pbulkimport3",
     "instance": "foodb",
     "importCodes": {
         "bib": {

@@ -110,7 +110,7 @@ def process_write(conf, params):
 
   try:
     if 'update' in params and params['update'] == '1':
-      output = run_bulkimport(conf['instance'], import_codes['update'], conf['operator'], record.as_marc21())
+      output = run_bulkimport(conf['bulkimportPath'], conf['instance'], import_codes['update'], conf['operator'], record.as_marc21())
       parse_bulkimport_log(conf, output)
       
       print 'Status: 204'
@@ -141,10 +141,10 @@ def error(code, msg=None):
 
   sys.exit()
 
-def run_bulkimport(db, import_code, operator, payload):
+def run_bulkimport(exec_path, db, import_code, operator, payload):
   input_file = '/tmp/{}'.format(str(uuid4()).replace('-', ''))
   args = [
-    '/m1/voyager/{}/sbin/Pbulkimport3'.format(db),
+    exec_path,
     '-reportsdir',
     '/m1/voyager/{}/rpt'.format(db),
     '-envfile',
